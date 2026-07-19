@@ -1,0 +1,14 @@
+{
+  "name": "tunnel-gate",
+  "dockerComposeFile": ["../docker-compose.yaml", "docker-compose.yaml"],
+  "service": "tunnel-gate",
+  "workspaceFolder": "/workspaces/tunnel-gate",
+  "shutdownAction": "stopCompose",
+  "remoteUser": "root",
+  "postCreateCommand": "bun install",
+  "customizations": {
+    "vscode": {
+      "extensions": ["oven.bun-vscode", "dbaeumer.vscode-eslint"]
+    }
+  }
+}

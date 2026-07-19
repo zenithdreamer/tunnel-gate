@@ -1,0 +1,28 @@
+services:
+  tunnel-gate:
+    image: tunnel-gate-dev:local
+    build:
+      target: base
+    command: sleep infinity
+    depends_on:
+      worker-image:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://tunnel_gate:tunnel_gate@postgres:5432/tunnel_gate?schema=public
+      TUNNEL_GATE_WORKER_IMAGE: tunnel-gate:local
+      TUNNEL_GATE_INSTANCE: tunnel-gate-dev
+      TURBO_TELEMETRY_DISABLED: "1"
+      DO_NOT_TRACK: "1"
+    volumes:
+      - .:/workspaces/tunnel-gate:cached
+
+  worker-image:
+    image: tunnel-gate:local
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: app
+    command: /bin/true
+    restart: "no"

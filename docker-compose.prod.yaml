@@ -1,0 +1,60 @@
+name: tunnel-gate
+
+services:
+  postgres:
+    image: postgres:18.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tunnel_gate}
+      POSTGRES_USER: ${POSTGRES_USER:-tunnel_gate}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tunnel_gate}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+
+  tunnel-gate:
+    image: ghcr.io/zenithdreamer/tunnel-gate:${TUNNEL_GATE_TAG:-latest}
+    pull_policy: always
+    container_name: tunnel-gate
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      - net.ipv4.ip_forward=1
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://tunnel_gate:tunnel_gate@postgres:5432/tunnel_gate?schema=public}
+      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-change-me-please}
+      - PROFILE_ENCRYPTION_KEY=${PROFILE_ENCRYPTION_KEY:-change-me-please}
+      - BETTER_AUTH_URL=${BETTER_AUTH_URL:-http://localhost:3000}
+      - FORWARD_PORT_RANGE=${FORWARD_PORT_RANGE:-40000-40019}
+      - OPENVPN_SERVER_HOST=${OPENVPN_SERVER_HOST:-localhost}
+      - OPENVPN_SERVER_PORT=${OPENVPN_SERVER_PORT:-1194}
+      # Workers default to the controller's own running image; set only to override.
+      - TUNNEL_GATE_WORKER_IMAGE=${TUNNEL_GATE_WORKER_IMAGE:-}
+      - TUNNEL_GATE_INSTANCE=${TUNNEL_GATE_INSTANCE:-tunnel-gate}
+    ports:
+      - "3000:3000"
+      - "${OPENVPN_SERVER_PORT:-1194}:${OPENVPN_SERVER_PORT:-1194}/udp"
+      - "${FORWARD_PORT_RANGE:-40000-40019}:${FORWARD_PORT_RANGE:-40000-40019}"
+      - "${FORWARD_PORT_RANGE:-40000-40019}:${FORWARD_PORT_RANGE:-40000-40019}/udp"
+    volumes:
+      - tunnel-gate-data:/var/lib/tunnel-gate
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  postgres-data:
+    name: tunnel-gate-postgres
+  tunnel-gate-data:
+    name: tunnel-gate-data

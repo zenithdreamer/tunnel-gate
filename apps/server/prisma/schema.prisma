@@ -1,0 +1,109 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model VpnProfile {
+  id          String  @id
+  name        String
+  type        String
+  config      String
+  routes      String  @default("[]")
+  dnsServers  String  @default("[]") @map("dns_servers")
+  autoConnect Boolean @default(false) @map("autoconnect")
+  createdAt   Int     @map("created_at")
+
+  @@map("vpn_profile")
+}
+
+model PortForward {
+  id         String  @id
+  name       String
+  proto      String
+  listenPort Int     @map("listen_port")
+  targetHost String  @map("target_host")
+  targetPort Int     @map("target_port")
+  enabled    Boolean @default(true)
+
+  @@unique([proto, listenPort])
+  @@map("port_forward")
+}
+
+model OpenVpnDevice {
+  id         String @id
+  name       String
+  commonName String @unique @map("common_name")
+  createdAt  Int    @map("created_at")
+  revokedAt  Int?   @map("revoked_at")
+
+  @@map("openvpn_device")
+}
+
+model RelaySetting {
+  key   String @id
+  value String
+
+  @@map("relay_setting")
+}
+
+model User {
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean
+  image         String?
+  createdAt     DateTime
+  updatedAt     DateTime
+  sessions      Session[]
+  accounts      Account[]
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime
+  updatedAt DateTime
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime
+  updatedAt             DateTime
+
+  @@map("account")
+}
+
+model Verification {
+  id         String    @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime?
+  updatedAt  DateTime?
+
+  @@map("verification")
+}
