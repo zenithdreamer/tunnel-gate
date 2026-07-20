@@ -30,7 +30,15 @@ RUN bun run --cwd apps/server db:generate
 RUN bun run --cwd apps/web build
 
 FROM base AS app
-COPY --from=build /app /app
+
+COPY --from=build /app/node_modules /app/node_modules
+COPY --from=build /app/apps/server/node_modules /app/apps/server/node_modules
+COPY --from=build /app/package.json /app/package.json
+COPY --from=build /app/apps/server/package.json /app/apps/server/package.json
+COPY --from=build /app/apps/web/dist /app/apps/web/dist
+COPY --from=build /app/apps/server/prisma /app/apps/server/prisma
+COPY --from=build /app/apps/server/prisma.config.ts /app/apps/server/prisma.config.ts
+COPY --from=build /app/apps/server/src /app/apps/server/src
 ENV NODE_ENV=production \
     WEB_DIST=/app/apps/web/dist \
     STATE_DIR=/var/lib/tunnel-gate
