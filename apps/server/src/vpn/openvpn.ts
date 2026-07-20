@@ -8,11 +8,10 @@ import type { LogFn, OpenVpnConfig, StartedTunnel } from "./types";
 const CONNECT_TIMEOUT_MS = 60_000;
 
 export function prepareOpenVpnConfig(ovpn: string, credsPath: string | null): string {
-  const cleaned =
-    ovpn
-      .replace(/^\s*<auth-user-pass>[\s\S]*?<\/auth-user-pass>\s*$/gm, "")
-      .replace(/^\s*auth-user-pass.*$/gm, "")
-      .trimEnd() + "\n";
+  const cleaned = `${ovpn
+    .replace(/^\s*<auth-user-pass>[\s\S]*?<\/auth-user-pass>\s*$/gm, "")
+    .replace(/^\s*auth-user-pass.*$/gm, "")
+    .trimEnd()}\n`;
   return credsPath ? `${cleaned}auth-user-pass ${credsPath}\n` : cleaned;
 }
 

@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task: [typecheck, "format:check"]
+        task: [typecheck, lint, "format:check"]
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
