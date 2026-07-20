@@ -13,7 +13,20 @@ export function createApp() {
     )
     .all("/api/auth/*", ({ request }) => auth.handler(request))
     .get("/api/setup", async () => ({ needsSetup: (await userCount()) === 0 }))
-    .use(api);
+    .use(api)
+    .onError(({ code, error, set }) => {
+      if (code === "VALIDATION") {
+        set.status = 422;
+        return { error: error.message };
+      }
+      if (code === "PARSE") {
+        set.status = 400;
+        return { error: "malformed request body" };
+      }
+      if (code === "NOT_FOUND") return undefined;
+      set.status = 500;
+      return { error: error instanceof Error ? error.message : "internal server error" };
+    });
 }
 
 export type App = ReturnType<typeof createApp>;

@@ -9,6 +9,12 @@ const CONN = "l2tp-relay";
 const LAC = "relay";
 const CONTROL = "/var/run/xl2tpd/l2tp-control";
 const PPPD_LOG = "/var/run/xl2tpd/pppd.log";
+const SWANCTL_CONF = "/etc/swanctl/conf.d/l2tp-relay.conf";
+const VICI_SOCKET = "/run/charon.vici";
+
+function filterCharonNoise(l: string): boolean {
+  return /^plugin '.*': failed to load/.test(l);
+}
 
 // pppd word-splits options, including credentials.
 const pppQuote = (s: string) => `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
@@ -20,26 +26,38 @@ function writeConfigs(cfg: L2tpConfig) {
     .replace(/"/g, '\\"')
     .replace(/[\r\n]/g, "");
   writeFileSync(
-    "/etc/ipsec.conf",
-    `config setup
-  uniqueids=no
-
-conn ${CONN}
-  keyexchange=ikev1
-  authby=secret
-  type=transport
-  left=%defaultroute
-  leftprotoport=17/1701
-  right=${cfg.server}
-  rightid=%any
-  rightprotoport=17/1701
-  ike=aes256-sha1-modp2048,aes256-sha1-modp1024,aes128-sha1-modp1024,3des-sha1-modp1024!
-  esp=aes256-sha1,aes128-sha1,3des-sha1!
-  auto=add
+    SWANCTL_CONF,
+    `connections {
+  ${CONN} {
+    version = 1
+    local_addrs = %any
+    remote_addrs = ${cfg.server}
+    proposals = aes256-sha1-modp2048,aes256-sha1-modp1024,aes128-sha1-modp1024,3des-sha1-modp1024
+    local {
+      auth = psk
+    }
+    remote {
+      auth = psk
+    }
+    children {
+      ${CONN} {
+        mode = transport
+        local_ts = 0.0.0.0/0[udp/1701]
+        remote_ts = 0.0.0.0/0[udp/1701]
+        esp_proposals = aes256-sha1,aes128-sha1,3des-sha1
+        start_action = none
+      }
+    }
+  }
+}
+secrets {
+  ike-${CONN} {
+    secret = "${escapedPsk}"
+  }
+}
 `,
+    { mode: 0o600 },
   );
-  // Accept either hostname or resolved-IP peer identities.
-  writeFileSync("/etc/ipsec.secrets", `%any %any : PSK "${escapedPsk}"\n`, { mode: 0o600 });
 
   mkdirSync("/etc/xl2tpd", { recursive: true });
   writeFileSync(
@@ -99,18 +117,32 @@ export async function startL2tp(cfg: L2tpConfig, log: LogFn): Promise<StartedTun
 
   await killByName("xl2tpd");
   await killByName("pppd");
+  await killByName("charon-systemd");
   rmSync("/var/run/xl2tpd.pid", { force: true });
   rmSync(CONTROL, { force: true });
+  rmSync(VICI_SOCKET, { force: true });
   await sleep(500);
 
-  await sh("ipsec", ["stop"]);
-  const start = await sh("ipsec", ["start"]);
-  log(`[ipsec] start: ${start.out || "ok"}`);
-  await sleep(2500);
-  const up = await sh("ipsec", ["up", CONN]);
-  for (const line of up.out.split("\n")) log(`[ipsec] ${line}`);
-  if (!/established successfully|INSTALLED/i.test(up.out)) {
-    await sh("ipsec", ["stop"]);
+  const charon: ChildProcess = spawn("charon-systemd", [], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  pipeLines(charon, (l) => {
+    if (filterCharonNoise(l)) return;
+    log(`[charon] ${l}`);
+  });
+  for (let i = 0; i < 40 && !existsSync(VICI_SOCKET); i++) await sleep(250);
+  if (!existsSync(VICI_SOCKET)) {
+    await stopProc(charon);
+    throw new Error("IPSec daemon (charon) failed to start: vici socket never appeared");
+  }
+
+  const loaded = await sh("swanctl", ["--load-all"]);
+  for (const line of loaded.out.split("\n")) if (!filterCharonNoise(line)) log(`[swanctl] ${line}`);
+  const up = await sh("swanctl", ["--initiate", "--child", CONN, "--timeout", "20"]);
+  for (const line of up.out.split("\n")) if (!filterCharonNoise(line)) log(`[swanctl] ${line}`);
+  if (!up.ok) {
+    await sh("swanctl", ["--terminate", "--ike", CONN]);
+    await stopProc(charon);
     throw new Error(`IPSec negotiation failed. Check the server address and PSK`);
   }
 
@@ -130,8 +162,8 @@ export async function startL2tp(cfg: L2tpConfig, log: LogFn): Promise<StartedTun
       appendFileSync(CONTROL, `d ${LAC}\n`);
     } catch {}
     await stopProc(xl2tpd);
-    await sh("ipsec", ["down", CONN]);
-    await sh("ipsec", ["stop"]);
+    await sh("swanctl", ["--terminate", "--ike", CONN]);
+    await stopProc(charon);
   };
 
   try {

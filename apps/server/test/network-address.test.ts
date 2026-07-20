@@ -36,7 +36,7 @@ describe("IPv4 network domain", () => {
     expect(validateAddressPlan(["10.1.0.0/16"], ["10.2.0.53"])).toBeNull();
     expect(validateAddressPlan(["0.0.0.0/0"], [])).toContain("Default routes");
     expect(validateAddressPlan(["10.1.0.0/16", "10.1.2.0/24"], [])).toContain("must not overlap");
-    expect(validateAddressPlan(["10.1.0.0/16"], ["10.1.0.53"])).toContain("must not overlap");
+    expect(validateAddressPlan(["10.1.0.0/16"], ["10.1.0.53"])).toBeNull();
     expect(validateAddressPlan(["10.250.0.8/32"], [])).toContain("relay infrastructure");
   });
 });

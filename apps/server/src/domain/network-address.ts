@@ -72,13 +72,13 @@ export function validateAddressPlan(routes: string[], dnsServers: string[]): str
   if (dnsServers.some((server) => parseIPv4(server) === null)) return "DNS servers must be valid IPv4 addresses";
   if (new Set(dnsServers).size !== dnsServers.length) return "Duplicate DNS servers are not allowed";
 
-  const allRoutes = [...routes, ...dnsServers.map((server) => `${server}/32`)];
-  for (let left = 0; left < allRoutes.length; left++) {
-    for (let right = left + 1; right < allRoutes.length; right++) {
-      if (ipv4CidrsOverlap(allRoutes[left], allRoutes[right]))
-        return "VPN routes and DNS servers within one profile must not overlap";
+  for (let left = 0; left < routes.length; left++) {
+    for (let right = left + 1; right < routes.length; right++) {
+      if (ipv4CidrsOverlap(routes[left], routes[right])) return "VPN routes must not overlap";
     }
   }
+
+  const allRoutes = [...routes, ...dnsServers.map((server) => `${server}/32`)];
   for (const route of allRoutes) {
     const reserved = RELAY_RESERVED_CIDRS.find((cidr) => ipv4CidrsOverlap(route, cidr));
     if (reserved) return `Route overlaps with the relay infrastructure network (${reserved})`;
