@@ -7,12 +7,14 @@ export async function userCount(): Promise<number> {
   return prisma.user.count();
 }
 
+const baseURL = process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
+
 export const auth = betterAuth({
   database: prismaAdapter(prisma, { provider: "postgresql" }),
-  baseURL: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
+  baseURL,
   secret: process.env.BETTER_AUTH_SECRET ?? "dev-only-secret-change-me",
   emailAndPassword: { enabled: true },
-  trustedOrigins: ["http://localhost:5173", "http://localhost:3000"],
+  trustedOrigins: [baseURL, "http://localhost:5173", "http://localhost:3000"],
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
       if (ctx.path.startsWith("/sign-up") && (await userCount()) > 0 && process.env.ALLOW_SIGNUP !== "true") {
