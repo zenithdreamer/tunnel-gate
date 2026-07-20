@@ -77,6 +77,11 @@ const ROW_GAP = 24;
 const nodeH = (lines: number) => HEAD_H + lines * LINE_H + 10;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
+const truncateSub = (line: string, nodeWidth: number) => {
+  const maxChars = Math.floor((nodeWidth - 16 - 8) / 6);
+  return line.length > maxChars ? `${line.slice(0, maxChars - 1)}…` : line;
+};
+
 export function Topology({ mode, status, openVpnStatus, profiles, forwards, samples }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const viewTouched = useRef(false);
@@ -530,7 +535,8 @@ export function Topology({ mode, status, openVpnStatus, profiles, forwards, samp
                 </text>
                 {node.sub.map((line, index) => (
                   <text key={line} className="tnode-sub" x={16} y={HEAD_H + 10 + index * LINE_H}>
-                    {line}
+                    {truncateSub(line, node.w)}
+                    <title>{line}</title>
                   </text>
                 ))}
               </g>
