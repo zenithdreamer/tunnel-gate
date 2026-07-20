@@ -41,7 +41,7 @@ services:
       - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-change-me-please}
       - PROFILE_ENCRYPTION_KEY=${PROFILE_ENCRYPTION_KEY:-change-me-please}
       - BETTER_AUTH_URL=${BETTER_AUTH_URL:-http://localhost:3000}
-      - FORWARD_PORT_RANGE=${FORWARD_PORT_RANGE:-40000-40019}
+      - FORWARD_PORT_RANGE=${FORWARD_PORT_RANGE:-40000-49151}
       - OPENVPN_SERVER_HOST=${OPENVPN_SERVER_HOST:-localhost}
       - OPENVPN_SERVER_PORT=${OPENVPN_SERVER_PORT:-1194}
       # Workers default to the controller's own running image; set only to override.
@@ -50,8 +50,8 @@ services:
     ports:
       - "3000:3000"
       - "${OPENVPN_SERVER_PORT:-1194}:${OPENVPN_SERVER_PORT:-1194}/udp"
-      - "${FORWARD_PORT_RANGE:-40000-40019}:${FORWARD_PORT_RANGE:-40000-40019}"
-      - "${FORWARD_PORT_RANGE:-40000-40019}:${FORWARD_PORT_RANGE:-40000-40019}/udp"
+      - "${FORWARD_PORT_RANGE:-40000-49151}:${FORWARD_PORT_RANGE:-40000-49151}"
+      - "${FORWARD_PORT_RANGE:-40000-49151}:${FORWARD_PORT_RANGE:-40000-49151}/udp"
     volumes:
       - tunnel-gate-data:/var/lib/tunnel-gate
       - /var/run/docker.sock:/var/run/docker.sock
