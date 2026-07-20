@@ -1,4 +1,5 @@
 import { type PortForward, prisma } from "../db";
+import { DEMO, demoForwardEnabled } from "../demo";
 import { ipv4CidrContains } from "../domain/network-address";
 import { CoalescedTask } from "../lib/coalesced-task";
 import { tunnel } from "../vpn/manager";
@@ -90,7 +91,7 @@ export class ForwardManager {
 }
 
 const forwardManager = new ForwardManager({
-  listRows: () => prisma.portForward.findMany(),
+  listRows: () => (DEMO ? Promise.resolve([]) : prisma.portForward.findMany()),
   forwardingRoutes: () => tunnel.forwardingRoutes(),
   startForward: (f, onLog, onExit) =>
     f.proto === "tcp"
@@ -104,7 +105,7 @@ export function syncForwards(): Promise<void> {
 }
 
 export function forwardStatus(id: string): boolean {
-  return forwardManager.forwardStatus(id);
+  return DEMO ? demoForwardEnabled(id) : forwardManager.forwardStatus(id);
 }
 
 export function stopForwards(): Promise<void> {

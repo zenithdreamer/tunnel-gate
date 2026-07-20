@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { Elysia, status, t } from "elysia";
+import { store } from "../data";
 import { type PortForward, prisma } from "../db";
+import { DEMO, demoCreateForward, demoDeleteForward, demoSetForwardEnabled } from "../demo";
 import { prismaErrorCode } from "../lib/errors";
 import { forwardPortRange, forwardStatus, syncForwards } from "../relay/forwards";
 
@@ -28,9 +30,7 @@ function publicForward(f: PortForward) {
 
 export const forwardsApi = new Elysia()
   .get("/config", () => ({ forwardPortRange: forwardPortRange() }))
-  .get("/forwards", async () =>
-    (await prisma.portForward.findMany({ orderBy: { listenPort: "asc" } })).map(publicForward),
-  )
+  .get("/forwards", async () => (await store.forwards()).map(publicForward))
   .post(
     "/forwards",
     async ({ body }) => {
@@ -40,6 +40,7 @@ export const forwardsApi = new Elysia()
           error: `Listen port must be within ${range.lo}-${range.hi} (published range; set FORWARD_PORT_RANGE to change it)`,
         });
       }
+      if (DEMO) return demoCreateForward(body);
       try {
         const created = await prisma.portForward.create({
           data: {
@@ -64,6 +65,10 @@ export const forwardsApi = new Elysia()
   .patch(
     "/forwards/:id",
     async ({ params, body }) => {
+      if (DEMO)
+        return demoSetForwardEnabled(params.id, body.enabled)
+          ? { ok: true }
+          : status(404, { error: "forward not found" });
       try {
         await prisma.portForward.update({ where: { id: params.id }, data: { enabled: body.enabled } });
       } catch (error) {
@@ -76,6 +81,10 @@ export const forwardsApi = new Elysia()
     { body: t.Object({ enabled: t.Boolean() }) },
   )
   .delete("/forwards/:id", async ({ params }) => {
+    if (DEMO) {
+      demoDeleteForward(params.id);
+      return { ok: true };
+    }
     await prisma.portForward.delete({ where: { id: params.id } }).catch(() => {});
     await syncForwards();
     return { ok: true };

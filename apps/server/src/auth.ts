@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { prisma } from "./db";
+import { DEMO, demoSession } from "./demo";
 
 export async function userCount(): Promise<number> {
   return prisma.user.count();
@@ -27,5 +28,6 @@ export const auth = betterAuth({
 });
 
 export async function getSession(request: Request) {
+  if (DEMO) return demoSession();
   return auth.api.getSession({ headers: request.headers });
 }

@@ -1,6 +1,15 @@
 import { readFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 import { prisma, type VpnProfile } from "../db";
+import {
+  DEMO,
+  demoConnectionDetails,
+  demoDockerController,
+  demoDockerDaemon,
+  demoHoursConnected,
+  demoProfiles,
+  demoWorkerUsage,
+} from "../demo";
 import type { ProfileConfig } from "../domain/profile-config";
 import { parseJsonList, workerRoutes } from "../domain/profile-routes";
 import { errorMessage } from "../lib/errors";
@@ -69,6 +78,7 @@ export class TunnelManager {
   private dockerContext: DockerContext | null = null;
   private topologyListeners = new Set<() => Promise<void>>();
   private watchdogTimer: ReturnType<typeof setInterval> | null = null;
+  private demoTimer: ReturnType<typeof setInterval> | null = null;
 
   log = (line: string, profileId: string | null = null) => {
     this.logs.push({ t: Date.now(), line, profileId });
@@ -118,6 +128,7 @@ export class TunnelManager {
   }
 
   async initialize() {
+    if (DEMO) return this.enableDemo();
     const context = await this.context();
     const [owned, legacy, allManaged] = await Promise.all([
       listContainers([`${WORKER_LABELS.managed}=true`, `${WORKER_LABELS.instance}=${context.instance}`]),
@@ -161,6 +172,7 @@ export class TunnelManager {
   }
 
   private async dial(profile: VpnProfile) {
+    if (DEMO) return this.demoDial(profile);
     const existing = this.sessions.get(profile.id);
     if (existing?.busy) throw new Error("tunnel operation already in progress");
     if (this.isActive(profile.id)) throw new Error("This profile is already connected");
@@ -328,6 +340,7 @@ export class TunnelManager {
     const session = this.sessions.get(profileId);
     if (session && !this.isActive(profileId)) this.sessions.delete(profileId);
     this.epochs.set(profileId, (this.epochs.get(profileId) ?? 0) + 1);
+    if (DEMO) return;
     const context = await this.context();
     await Promise.all([
       removeVolume(identityVolume(context, profileId, "ts")),
@@ -336,6 +349,7 @@ export class TunnelManager {
   }
 
   private async teardown(session: Session) {
+    if (DEMO) return this.demoTeardown(session);
     if (session.busy) throw new Error("tunnel operation already in progress");
     session.busy = true;
     try {
@@ -354,7 +368,7 @@ export class TunnelManager {
   }
 
   startWatchdog() {
-    if (this.watchdogTimer) return;
+    if (DEMO || this.watchdogTimer) return;
     let ticking = false;
     this.watchdogTimer = setInterval(async () => {
       if (ticking) return;
@@ -381,6 +395,7 @@ export class TunnelManager {
   }
 
   async autoConnect(profileId?: string) {
+    if (DEMO) return;
     const profiles = await prisma.vpnProfile.findMany({
       where: profileId ? { id: profileId, autoConnect: true } : { autoConnect: true },
     });
@@ -422,6 +437,137 @@ export class TunnelManager {
     }
   }
 
+  private enableDemo() {
+    for (const profile of demoProfiles()) {
+      this.sessions.set(profile.id, this.makeDemoSession(profile, "connected"));
+    }
+    this.startDemoTraffic();
+    this.log(`[demo] mode active - presenting ${this.sessions.size} fake tunnel(s); no real VPN is connected`);
+  }
+
+  private makeDemoSession(profile: VpnProfile, state: TunnelState): Session {
+    let finishOperation!: () => void;
+    const operationDone = new Promise<void>((resolve) => {
+      finishOperation = resolve;
+    });
+    const session: Session = {
+      profile,
+      state,
+      containerId: `demo${profile.id.replaceAll("-", "").slice(0, 12)}`,
+      gateway: null,
+      iface: null,
+      addr: null,
+      since: null,
+      lastError: null,
+      endpoint: null,
+      loginUrl: null,
+      routes: workerRoutes(parseJsonList(profile.routes), parseJsonList(profile.dnsServers)),
+      installedRoutes: [],
+      rx: 0,
+      tx: 0,
+      busy: false,
+      cancelRequested: false,
+      operationDone,
+      finishOperation,
+      logs: null,
+    };
+    if (state === "connected") this.fillDemoConnected(session, demoHoursConnected(profile));
+    return session;
+  }
+
+  private fillDemoConnected(session: Session, hoursAgo: number) {
+    const details = demoConnectionDetails(session.profile);
+    session.state = "connected";
+    session.iface = details.iface;
+    session.addr = details.addr;
+    session.gateway = details.gateway;
+    session.endpoint = details.endpoint;
+    session.since = Date.now() - Math.round(hoursAgo * 3600_000);
+    session.rx = Math.round(details.rxRate * hoursAgo * 3600);
+    session.tx = Math.round(details.txRate * hoursAgo * 3600);
+    session.installedRoutes = [...session.routes];
+  }
+
+  private async demoDial(profile: VpnProfile) {
+    const existing = this.sessions.get(profile.id);
+    if (existing?.busy) throw new Error("tunnel operation already in progress");
+    if (this.isActive(profile.id)) throw new Error("This profile is already connected");
+    const session = this.makeDemoSession(profile, "connecting");
+    session.busy = true;
+    this.sessions.set(profile.id, session);
+    this.log(`--- [demo] starting worker for "${profile.name}" (${profile.type}) ---`, profile.id);
+    try {
+      await sleep(1200);
+      if (session.cancelRequested) {
+        this.sessions.delete(profile.id);
+        this.log("--- [demo] disconnected while connecting ---", profile.id);
+        return;
+      }
+      this.fillDemoConnected(session, 0);
+      await this.topologyChanged();
+      this.log(`--- [demo] connected through worker ${session.gateway} ---`, profile.id);
+    } finally {
+      session.busy = false;
+      session.finishOperation();
+    }
+  }
+
+  private async demoTeardown(session: Session) {
+    session.state = "disconnected";
+    await this.topologyChanged();
+    this.sessions.delete(session.profile.id);
+    this.log("--- [demo] disconnected ---", session.profile.id);
+  }
+
+  private startDemoTraffic() {
+    if (this.demoTimer) return;
+    this.demoTimer = setInterval(() => {
+      for (const session of this.sessions.values()) {
+        if (session.state !== "connected") continue;
+        const { rxRate, txRate } = demoConnectionDetails(session.profile);
+        session.rx += Math.round(rxRate * (0.6 + Math.random() * 0.8));
+        session.tx += Math.round(txRate * (0.6 + Math.random() * 0.8));
+      }
+    }, 1000);
+  }
+
+  demoTrafficRates() {
+    return [...this.sessions.values()]
+      .filter((session) => session.state === "connected")
+      .map((session) => {
+        const { rxRate, txRate } = demoConnectionDetails(session.profile);
+        return { profileId: session.profile.id, rxRate, txRate };
+      });
+  }
+
+  private demoSystemStatus() {
+    const sessions = [...this.sessions.values()];
+    return {
+      daemon: demoDockerDaemon(sessions.filter((session) => session.state === "connected").length),
+      controller: demoDockerController(),
+      workers: sessions.map((session) => {
+        const usage = session.state === "connected" ? demoWorkerUsage(session.profile) : null;
+        return {
+          profileId: session.profile.id,
+          profileName: session.profile.name,
+          type: session.profile.type,
+          state: session.state,
+          containerId: session.containerId?.slice(0, 12) ?? null,
+          containerName: `tg-worker-${session.profile.type}-${session.containerId?.slice(4, 10)}`,
+          containerStatus: session.state === "connected" ? "Up 6 hours (healthy)" : "Exited (1)",
+          gateway: session.gateway,
+          iface: session.iface,
+          address: session.addr,
+          error: session.lastError,
+          cpu: usage?.cpu ?? null,
+          memory: usage?.memory ?? null,
+          networkIo: usage?.networkIo ?? null,
+          pids: usage?.pids ?? null,
+        };
+      }),
+    };
+  }
+
   status() {
     return {
       tunnels: [...this.sessions.values()].map((session) => ({
@@ -441,6 +587,7 @@ export class TunnelManager {
   }
 
   async systemStatus() {
+    if (DEMO) return this.demoSystemStatus();
     const context = await this.context();
     const [daemon, containers] = await Promise.all([
       dockerInfo().catch(() => null),
@@ -503,6 +650,10 @@ export class TunnelManager {
     if (this.watchdogTimer) {
       clearInterval(this.watchdogTimer);
       this.watchdogTimer = null;
+    }
+    if (this.demoTimer) {
+      clearInterval(this.demoTimer);
+      this.demoTimer = null;
     }
     for (const session of [...this.sessions.values()]) {
       if (!session.busy || session.state !== "connecting") continue;

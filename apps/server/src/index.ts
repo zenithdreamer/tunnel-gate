@@ -2,9 +2,10 @@ import { existsSync } from "node:fs";
 import { staticPlugin } from "@elysiajs/static";
 import { createApp } from "./app";
 import { prisma } from "./db";
+import { DEMO } from "./demo";
 import { stopForwards, syncForwards } from "./relay/forwards";
 import { openVpnServer } from "./relay/openvpn-server";
-import { startStatsSampler } from "./stats";
+import { backfillDemoSamples, startStatsSampler } from "./stats";
 import { tunnel } from "./vpn/manager";
 
 const KNOWN_DEFAULT_SECRETS = ["dev-only-secret-change-me", "change-me-please"];
@@ -13,6 +14,8 @@ for (const name of ["BETTER_AUTH_SECRET", "PROFILE_ENCRYPTION_KEY"]) {
   if (!value || KNOWN_DEFAULT_SECRETS.includes(value))
     console.warn(`[security] ${name} is unset or a known default value; generate one with: openssl rand -hex 32`);
 }
+
+if (DEMO) console.warn("[demo] DEMO=true: presenting fake VPN state, nothing is really connected");
 
 const stopStatsSampler = startStatsSampler();
 tunnel.onTopologyChange(async () => {
@@ -24,6 +27,8 @@ const forwardTimer = setInterval(() => void syncForwards(), 5000);
 await tunnel.initialize();
 tunnel.startWatchdog();
 await openVpnServer.start();
+
+if (DEMO) backfillDemoSamples(tunnel.demoTrafficRates());
 
 void tunnel.autoConnect();
 

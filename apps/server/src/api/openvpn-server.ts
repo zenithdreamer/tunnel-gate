@@ -1,5 +1,5 @@
 import { Elysia, status, t } from "elysia";
-import { prisma } from "../db";
+import { store } from "../data";
 import { errorMessage } from "../lib/errors";
 import { openVpnServer } from "../relay/openvpn-server";
 
@@ -9,7 +9,7 @@ export const openVpnServerApi = new Elysia()
     const connected = new Set(serverStatus.connectedCommonNames);
     return {
       ...serverStatus,
-      devices: (await prisma.openVpnDevice.findMany({ orderBy: { createdAt: "desc" } })).map((device) => ({
+      devices: (await store.devices()).map((device) => ({
         id: device.id,
         name: device.name,
         commonName: device.commonName,
@@ -61,7 +61,7 @@ export const openVpnServerApi = new Elysia()
     { body: t.Object({ name: t.String({ minLength: 1, maxLength: 80 }) }) },
   )
   .get("/openvpn-server/devices/:id/config", async ({ params, set }) => {
-    const device = await prisma.openVpnDevice.findUnique({ where: { id: params.id } });
+    const device = await store.device(params.id);
     if (!device) return status(404, { error: "device profile not found" });
     try {
       const filename = `${device.name.replace(/[^a-zA-Z0-9_-]+/g, "-") || "tunnel-gate"}.ovpn`;
@@ -73,7 +73,7 @@ export const openVpnServerApi = new Elysia()
     }
   })
   .delete("/openvpn-server/devices/:id", async ({ params }) => {
-    const device = await prisma.openVpnDevice.findUnique({ where: { id: params.id } });
+    const device = await store.device(params.id);
     if (!device) return status(404, { error: "device profile not found" });
     try {
       await openVpnServer.revokeDevice(device);

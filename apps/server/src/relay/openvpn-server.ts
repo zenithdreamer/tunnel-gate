@@ -3,6 +3,15 @@ import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type OpenVpnDevice, prisma, STATE_DIR } from "../db";
+import {
+  DEMO,
+  DEMO_OPENVPN_HOST,
+  DEMO_OPENVPN_PORT,
+  demoConnectedCommonNames,
+  demoCreateDevice,
+  demoDeleteDevice,
+  demoProfiles,
+} from "../demo";
 import { parseIPv4Cidr } from "../domain/network-address";
 import { aggregateAdvertisedNetwork } from "../domain/profile-routes";
 import { CoalescedTask } from "../lib/coalesced-task";
@@ -161,7 +170,32 @@ async function clearFirewall() {
   await sh("iptables", ["-t", "nat", "-X", "TUNNEL_GATE_NAT"]);
 }
 
-export class OpenVpnServerManager {
+export interface OpenVpnServerStatus {
+  enabled: boolean;
+  running: boolean;
+  port: number;
+  protocol: "udp";
+  subnet: string;
+  host: string;
+  routes: string[];
+  dnsServers: string[];
+  connectedCommonNames: string[];
+  lastError: string | null;
+}
+
+export interface OpenVpnServer {
+  start(): Promise<void>;
+  stop(): Promise<void>;
+  syncTopology(): Promise<void>;
+  setEnabled(enabled: boolean): Promise<void>;
+  setEndpoint(host: string, port: number): Promise<void>;
+  createDevice(name: string): Promise<OpenVpnDevice>;
+  revokeDevice(device: OpenVpnDevice): Promise<void>;
+  clientConfig(device: OpenVpnDevice): string;
+  status(): OpenVpnServerStatus;
+}
+
+export class OpenVpnServerManager implements OpenVpnServer {
   private process: ChildProcess | null = null;
   private routeFingerprint = "";
   private advertisedRoutes: string[] = [];
@@ -339,9 +373,9 @@ export class OpenVpnServerManager {
   }
 
   async createDevice(name: string) {
-    await ensurePki();
     const id = randomUUID();
     const commonName = `device-${id.replaceAll("-", "")}`;
+    await ensurePki();
     const deviceDir = join(DEVICES_DIR, id);
     mkdirSync(deviceDir, { recursive: true, mode: 0o700 });
     const key = join(deviceDir, "client.key");
@@ -413,7 +447,7 @@ ${readFileSync(TLS_CRYPT, "utf8").trim()}
 `;
   }
 
-  status() {
+  status(): OpenVpnServerStatus {
     const running = this.process !== null && this.process.exitCode === null;
     // The status file outlives the process, only trust it while the server runs.
     const clients =
@@ -422,7 +456,7 @@ ${readFileSync(TLS_CRYPT, "utf8").trim()}
       enabled: this.enabled,
       running,
       port: this.port,
-      protocol: "udp" as const,
+      protocol: "udp",
       subnet: SERVER_CIDR,
       host: this.host,
       routes: this.advertisedRoutes,
@@ -433,4 +467,75 @@ ${readFileSync(TLS_CRYPT, "utf8").trim()}
   }
 }
 
-export const openVpnServer = new OpenVpnServerManager();
+class DemoOpenVpnServer implements OpenVpnServer {
+  private enabled = true;
+  private host = DEMO_OPENVPN_HOST;
+  private port = DEMO_OPENVPN_PORT;
+
+  async start() {}
+  async stop() {}
+  async syncTopology() {}
+
+  async setEnabled(enabled: boolean) {
+    this.enabled = enabled;
+  }
+
+  async setEndpoint(host: string, port: number) {
+    this.host = host.trim();
+    this.port = port;
+  }
+
+  async createDevice(name: string): Promise<OpenVpnDevice> {
+    return demoCreateDevice(name);
+  }
+
+  async revokeDevice(device: OpenVpnDevice) {
+    demoDeleteDevice(device.id);
+  }
+
+  clientConfig(device: OpenVpnDevice) {
+    return `# Demo profile for ${device.name} - not a real, usable OpenVPN config.
+client
+dev tun
+proto udp
+remote ${this.host} ${this.port}
+remote-cert-tls server
+auth SHA256
+cipher AES-256-GCM
+verb 3
+<ca>
+-----BEGIN CERTIFICATE-----
+MIIB<demo-ca-certificate-not-real>
+-----END CERTIFICATE-----
+</ca>
+<cert>
+-----BEGIN CERTIFICATE-----
+MIIB<demo-client-certificate-not-real-cn-${device.commonName}>
+-----END CERTIFICATE-----
+</cert>
+<key>
+-----BEGIN PRIVATE KEY-----
+MIIB<demo-client-key-not-real>
+-----END PRIVATE KEY-----
+</key>
+`;
+  }
+
+  status(): OpenVpnServerStatus {
+    const network = aggregateAdvertisedNetwork(demoProfiles());
+    return {
+      enabled: this.enabled,
+      running: this.enabled,
+      port: this.port,
+      protocol: "udp",
+      subnet: SERVER_CIDR,
+      host: this.host,
+      routes: network.routes,
+      dnsServers: network.dnsServers,
+      connectedCommonNames: demoConnectedCommonNames(),
+      lastError: null,
+    };
+  }
+}
+
+export const openVpnServer: OpenVpnServer = DEMO ? new DemoOpenVpnServer() : new OpenVpnServerManager();

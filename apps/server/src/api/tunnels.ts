@@ -1,5 +1,5 @@
 import { Elysia, status, t } from "elysia";
-import { prisma } from "../db";
+import { store } from "../data";
 import { errorMessage } from "../lib/errors";
 import { tunnel } from "../vpn/manager";
 
@@ -8,7 +8,7 @@ export const tunnelsApi = new Elysia()
   .post(
     "/tunnel/connect",
     async ({ body }) => {
-      const profile = await prisma.vpnProfile.findUnique({ where: { id: body.profileId } });
+      const profile = await store.profile(body.profileId);
       if (!profile) return status(404, { error: "profile not found" });
       if (profile.autoConnect)
         return status(409, { error: "Auto mode manages this profile. Turn auto mode off to connect manually" });
@@ -21,7 +21,7 @@ export const tunnelsApi = new Elysia()
   .post(
     "/tunnel/disconnect",
     async ({ body }) => {
-      const current = await prisma.vpnProfile.findUnique({ where: { id: body.profileId } });
+      const current = await store.profile(body.profileId);
       if (current?.autoConnect)
         return status(409, { error: "Auto mode manages this profile. Turn auto mode off to disconnect" });
       try {

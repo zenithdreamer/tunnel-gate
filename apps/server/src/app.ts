@@ -2,6 +2,7 @@ import { cors } from "@elysiajs/cors";
 import { Elysia } from "elysia";
 import { api } from "./api";
 import { auth, userCount } from "./auth";
+import { DEMO, DEMO_CREDENTIALS, DEMO_USER } from "./demo";
 
 export function createApp() {
   return new Elysia()
@@ -33,7 +34,16 @@ export function createApp() {
       }),
     )
     .all("/api/auth/*", ({ request }) => auth.handler(request))
-    .get("/api/setup", async () => ({ needsSetup: (await userCount()) === 0 }))
+    .get("/api/setup", async () =>
+      DEMO
+        ? {
+            needsSetup: false,
+            demo: true,
+            credentials: DEMO_CREDENTIALS,
+            user: { name: DEMO_USER.name, email: DEMO_USER.email },
+          }
+        : { needsSetup: (await userCount()) === 0 },
+    )
     .use(api);
 }
 

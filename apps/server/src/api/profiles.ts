@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { Elysia, status, t } from "elysia";
+import { store } from "../data";
 import { prisma, type VpnProfile } from "../db";
+import { DEMO, demoCreateProfile, demoDeleteProfile, demoSetProfileAutoConnect, demoUpdateProfile } from "../demo";
 import { canonicalIPv4Cidr, ipv4CidrsOverlap, validateAddressPlan } from "../domain/network-address";
 import {
   PROFILE_TYPES,
@@ -67,9 +69,7 @@ function publicProfile(p: VpnProfile) {
 }
 
 export const profilesApi = new Elysia()
-  .get("/profiles", async () =>
-    (await prisma.vpnProfile.findMany({ orderBy: { createdAt: "desc" } })).map(publicProfile),
-  )
+  .get("/profiles", async () => (await store.profiles()).map(publicProfile))
   .post(
     "/profiles",
     async ({ body }) => {
@@ -80,6 +80,7 @@ export const profilesApi = new Elysia()
         if (!(error instanceof ProfileConfigError)) throw error;
         return status(422, { error: error.message });
       }
+      if (DEMO) return demoCreateProfile(body);
       const routeError = await routeValidationError(body.routes, body.dnsServers);
       if (routeError) return status(422, { error: routeError });
       const created = await prisma.vpnProfile.create({
@@ -98,7 +99,7 @@ export const profilesApi = new Elysia()
     { body: profileBody },
   )
   .get("/profiles/:id", async ({ params }) => {
-    const p = await prisma.vpnProfile.findUnique({ where: { id: params.id } });
+    const p = await store.profile(params.id);
     if (!p) return status(404, { error: "profile not found" });
     const config = redactProfileSecrets(decryptProfileConfig(p.config) as Record<string, unknown>);
     return { ...publicProfile(p), config };
@@ -106,6 +107,8 @@ export const profilesApi = new Elysia()
   .put(
     "/profiles/:id",
     async ({ params, body }) => {
+      if (DEMO)
+        return demoUpdateProfile(params.id, body) ? { id: params.id } : status(404, { error: "profile not found" });
       const p = await prisma.vpnProfile.findUnique({
         where: { id: params.id },
       });
@@ -139,6 +142,10 @@ export const profilesApi = new Elysia()
   .patch(
     "/profiles/:id/autoconnect",
     async ({ params, body }) => {
+      if (DEMO)
+        return demoSetProfileAutoConnect(params.id, body.enabled)
+          ? { ok: true }
+          : status(404, { error: "profile not found" });
       try {
         await prisma.vpnProfile.update({
           where: { id: params.id },
@@ -155,6 +162,11 @@ export const profilesApi = new Elysia()
     { body: t.Object({ enabled: t.Boolean() }) },
   )
   .delete("/profiles/:id", async ({ params }) => {
+    if (DEMO) {
+      await tunnel.disconnect(params.id).catch(() => {});
+      demoDeleteProfile(params.id);
+      return { ok: true };
+    }
     if (tunnel.isActive(params.id)) return status(409, { error: "profile is currently connected" });
     await prisma.vpnProfile.delete({ where: { id: params.id } }).catch(() => {});
     await tunnel.forget(params.id);

@@ -59,6 +59,10 @@ export class TrafficStats {
     const cutoff = now - windowMs;
     return this.samples.filter((sample) => sample.t >= cutoff);
   }
+
+  seed(samples: Sample[]) {
+    this.samples = samples.slice(-this.capacity);
+  }
 }
 
 const trafficStats = new TrafficStats();
@@ -70,4 +74,28 @@ export function startStatsSampler(): () => void {
 
 export function getSamples(windowMs?: number): Sample[] {
   return trafficStats.getSamples(windowMs);
+}
+
+export function backfillDemoSamples(
+  rates: { profileId: string; rxRate: number; txRate: number }[],
+  now = Date.now(),
+): void {
+  const samples: Sample[] = [];
+  for (let t = now - DEFAULT_WINDOW_MS; t <= now; t += INTERVAL_MS) {
+    const phase = (t - now) / 30_000;
+    const by: Sample["by"] = {};
+    let rx = 0;
+    let tx = 0;
+    for (const rate of rates) {
+      const wave = 0.75 + 0.25 * Math.sin(phase + rate.rxRate);
+      const jitter = 0.85 + Math.random() * 0.3;
+      const rrx = rate.rxRate * wave * jitter;
+      const rtx = rate.txRate * wave * (0.85 + Math.random() * 0.3);
+      by[rate.profileId] = { rx: rrx, tx: rtx };
+      rx += rrx;
+      tx += rtx;
+    }
+    samples.push({ t, rx, tx, by });
+  }
+  trafficStats.seed(samples);
 }
