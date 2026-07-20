@@ -10,7 +10,7 @@ import {
   ShieldHalf,
   Wrench,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   errorMessage,
@@ -76,6 +76,8 @@ export function Dashboard({ user }: { user: { name: string; email: string } }) {
     refreshProfiles();
   }, [refreshProfiles]);
 
+  const seenTunnelErrors = useRef(new Map<string, string | null>());
+
   usePoll(async () => {
     const results = await Promise.allSettled([
       unwrap(api.tunnel.status.get()),
@@ -83,7 +85,16 @@ export function Dashboard({ user }: { user: { name: string; email: string } }) {
       unwrap(api.forwards.get()),
       unwrap(api["openvpn-server"].status.get()),
     ]);
-    if (results[0].status === "fulfilled") setStatus(results[0].value);
+    if (results[0].status === "fulfilled") {
+      setStatus(results[0].value);
+      for (const tun of results[0].value.tunnels) {
+        const seen = seenTunnelErrors.current.get(tun.profileId);
+        if (tun.state === "error" && tun.lastError && tun.lastError !== seen) {
+          setToast(`${tun.profileName}: ${tun.lastError}`);
+        }
+        seenTunnelErrors.current.set(tun.profileId, tun.state === "error" ? tun.lastError : null);
+      }
+    }
     if (results[1].status === "fulfilled") setSamples(results[1].value.samples);
     if (results[2].status === "fulfilled") setForwards(results[2].value);
     if (results[3].status === "fulfilled") setOpenVpnStatus(results[3].value);

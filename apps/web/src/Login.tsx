@@ -14,7 +14,7 @@ export function Login() {
 
   useEffect(() => {
     unwrap(api.setup.get())
-      .then((r) => setNeedsSetup(!!r.needsSetup))
+      .then((r) => setNeedsSetup("needsSetup" in r && !!r.needsSetup))
       .catch(() => setNeedsSetup(false));
   }, []);
 

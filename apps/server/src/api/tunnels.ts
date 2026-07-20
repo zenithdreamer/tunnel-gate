@@ -12,12 +12,9 @@ export const tunnelsApi = new Elysia()
       if (!profile) return status(404, { error: "profile not found" });
       if (profile.autoConnect)
         return status(409, { error: "Auto mode manages this profile. Turn auto mode off to connect manually" });
-      try {
-        await tunnel.connect(profile);
-        return tunnel.status();
-      } catch (error) {
-        return status(502, { error: errorMessage(error) });
-      }
+
+      tunnel.connect(profile).catch(() => {});
+      return tunnel.status();
     },
     { body: t.Object({ profileId: t.String() }) },
   )
