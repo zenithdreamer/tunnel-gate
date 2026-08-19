@@ -31,7 +31,7 @@ import { containerUsage } from "./docker-usage";
 import { sh } from "./net";
 import type { TunnelState } from "./types";
 import { buildWorkerSpec, identityVolume, WORKER_LABELS } from "./worker-spec";
-import { isCredentialRejection, parseWorkerStatusLine, type WorkerStatusEvent } from "./worker-status";
+import { parseWorkerStatusLine, shouldStopReconnect, type WorkerStatusEvent } from "./worker-status";
 
 const LOG_LIMIT = 500;
 const ROUTE_PROTO = "186";
@@ -424,7 +424,7 @@ export class TunnelManager {
           await this.dial(profile);
           return;
         } catch (error) {
-          if (isCredentialRejection(errorMessage(error))) {
+          if (shouldStopReconnect(errorMessage(error), profile.autoConnect)) {
             this.log(`--- ${reason} stopped: credentials were rejected ---`, profileId);
             return;
           }

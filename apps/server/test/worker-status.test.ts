@@ -3,6 +3,7 @@ import {
   formatWorkerStatus,
   isCredentialRejection,
   parseWorkerStatusLine,
+  shouldStopReconnect,
   type WorkerStatusEvent,
 } from "../src/vpn/worker-status";
 
@@ -27,10 +28,12 @@ describe("worker status protocol", () => {
     expect(parseWorkerStatusLine("TUNNEL_GATE_STATUS null")).toEqual({ kind: "invalid" });
   });
 
-  test("detects credential rejections that must stop reconnect loops", () => {
+  test("detects credential rejections and only stops non-auto reconnects", () => {
     expect(isCredentialRejection("openvpn: authentication failed")).toBe(true);
     expect(isCredentialRejection("AUTH_FAILED")).toBe(true);
     expect(isCredentialRejection("L2TP username or password was rejected")).toBe(true);
     expect(isCredentialRejection("connection timed out")).toBe(false);
+    expect(shouldStopReconnect("L2TP username or password was rejected", false)).toBe(true);
+    expect(shouldStopReconnect("L2TP username or password was rejected", true)).toBe(false);
   });
 });

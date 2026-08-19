@@ -29,3 +29,7 @@ export function parseWorkerStatusLine(line: string): ParsedWorkerLine {
 export function isCredentialRejection(message: string): boolean {
   return /authentication failed|(?:credentials?|username or password).*rejected|AUTH_FAILED/i.test(message);
 }
+
+export function shouldStopReconnect(message: string, autoConnect: boolean): boolean {
+  return !autoConnect && isCredentialRejection(message);
+}
