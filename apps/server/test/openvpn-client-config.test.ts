@@ -2,6 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { prepareOpenVpnConfig } from "../src/vpn/openvpn";
 
 describe("OpenVPN client config preparation", () => {
+  test("ignores inactivity timeouts pushed by the server", () => {
+    const out = prepareOpenVpnConfig("client\nremote vpn 1194\n", null);
+    expect(out).toStartWith('pull-filter ignore "inactive"\n');
+  });
+
   test("strips auth-user-pass directive lines", () => {
     const out = prepareOpenVpnConfig("client\nauth-user-pass creds.txt\nremote vpn 1194\n", null);
     expect(out).not.toContain("auth-user-pass");

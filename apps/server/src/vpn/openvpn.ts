@@ -6,13 +6,15 @@ import { pipeLines, stopProc } from "../lib/proc";
 import type { LogFn, OpenVpnConfig, StartedTunnel } from "./types";
 
 const CONNECT_TIMEOUT_MS = 60_000;
+const IGNORE_PUSHED_INACTIVITY_TIMEOUT = 'pull-filter ignore "inactive"';
 
 export function prepareOpenVpnConfig(ovpn: string, credsPath: string | null): string {
   const cleaned = `${ovpn
     .replace(/^\s*<auth-user-pass>[\s\S]*?<\/auth-user-pass>\s*$/gm, "")
     .replace(/^\s*auth-user-pass.*$/gm, "")
     .trimEnd()}\n`;
-  return credsPath ? `${cleaned}auth-user-pass ${credsPath}\n` : cleaned;
+  const persistent = `${IGNORE_PUSHED_INACTIVITY_TIMEOUT}\n${cleaned}`;
+  return credsPath ? `${persistent}auth-user-pass ${credsPath}\n` : persistent;
 }
 
 export async function startOpenVpn(cfg: OpenVpnConfig, profileId: string, log: LogFn): Promise<StartedTunnel> {
